@@ -1,0 +1,66 @@
+{
+    "name": "cline/math",
+    "description": "Arbitrary-precision arithmetic library",
+    "license": "MIT",
+    "keywords": [
+        "php",
+        "math",
+        "arbitrary-precision",
+        "big-number"
+    ],
+    "authors": [
+        {
+            "name": "Brian Faust",
+            "email": "brian@cline.sh"
+        }
+    ],
+    "require": {
+        "php": "^8.5.0"
+    },
+    "require-dev": {
+        "cline/coding-standard": "^1.6.3",
+        "ergebnis/composer-normalize": "^2.48.2",
+        "orchestra/testbench": "^10.8",
+        "pestphp/pest": "^4.4",
+        "pestphp/pest-plugin-type-coverage": "^4.0.3",
+        "php-coveralls/php-coveralls": "^2.2",
+        "phpstan/phpstan": "^2.1.33",
+        "symfony/var-dumper": "^7.4.0",
+        "pestphp/pest-plugin-drift": "^4"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "Cline\\Math\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "ergebnis/composer-normalize": true,
+            "pestphp/pest-plugin": true
+        }
+    },
+    "scripts": {
+        "lint": "vendor/bin/ecs check --fix",
+        "refactor": "rector",
+        "test": [
+            "@test:lint",
+            "@test:type-coverage",
+            "@test:unit",
+            "@test:types",
+            "@test:refactor"
+        ],
+        "test:lint": "vendor/bin/ecs check",
+        "test:refactor": "rector --dry-run",
+        "test:type-coverage": "pest --parallel --min=75 --type-coverage",
+        "test:types": "phpstan",
+        "test:unit": "pest --parallel --min=75 --coverage"
+    }
+}
