@@ -1,0 +1,152 @@
+---
+name: Quality Assurance
+on:
+  push:
+    branches: ['main']
+  pull_request: ~
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      run_native:
+        description: Run slow Native calculator tests
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  tests:
+    name: >-
+      Tests on ${{ matrix.php }} ${{ matrix.composer-flags }}
+      ${{ matrix.calculator }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.5']
+        composer-flags: ['']
+        calculator: ['GMP', 'BCMath']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP for BCMath
+        if: ${{ matrix.calculator == 'BCMath' }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: pcov
+          tools: composer:v2
+          extensions: bcmath, :gmp
+      - name: Set up PHP for GMP
+        if: ${{ matrix.calculator == 'GMP' }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: pcov
+          tools: composer:v2
+          extensions: gmp, :bcmath
+      - name: Verify extension selection
+        run: |
+          php -m | grep -i '^gmp$' || true
+          php -m | grep -i '^bcmath$' || true
+          if [ "${{ matrix.calculator }}" = "BCMath" ] && php -m | grep -qi '^gmp$'; then
+            echo "GMP must not be loaded for BCMath matrix run"
+            exit 1
+          fi
+      - name: Install dependencies
+        run: composer install --no-progress ${{ matrix.composer-flags }}
+      - name: Run tests with coverage
+        run: vendor/bin/pest --coverage --min=75
+        env:
+          CALCULATOR: ${{ matrix.calculator }}
+      - name: Run tests with bcscale()
+        if: ${{ matrix.calculator == 'BCMath' }}
+        run: vendor/bin/pest --min=75
+        env:
+          CALCULATOR: BCMath
+          BCMATH_DEFAULT_SCALE: 8
+
+  tests-native:
+    if: >-
+      ${{
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.run_native == true)
+      }}
+    name: Native tests on 8.5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP for Native
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+          extensions: :gmp, :bcmath
+      - name: Install dependencies
+        run: composer install --no-progress
+      - name: Run Native tests
+        run: vendor/bin/pest --min=75
+        env:
+          CALCULATOR: Native
+
+  phpstan:
+    name: PHPStan on ${{ matrix.php }} ${{ matrix.composer-flags }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.5']
+        composer-flags: ['']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-progress ${{ matrix.composer-flags }}
+      - name: Run static analysis
+        run: vendor/bin/phpstan
+
+  ecs:
+    name: Code Style on ${{ matrix.php }} ${{ matrix.composer-flags }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.5']
+        composer-flags: ['']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-progress ${{ matrix.composer-flags }}
+      - name: Check code style
+        run: vendor/bin/ecs check
+
+  rector:
+    name: Rector on ${{ matrix.php }} ${{ matrix.composer-flags }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.5']
+        composer-flags: ['']
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-progress ${{ matrix.composer-flags }}
+      - name: Run Rector checks
+        run: vendor/bin/rector --dry-run

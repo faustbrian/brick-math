@@ -1,0 +1,600 @@
+<?php declare(strict_types=1);
+
+/**
+ * Copyright (C) Brian Faust
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+namespace Cline\Math;
+
+use Cline\Math\Exception\DivisionByZeroException;
+use Cline\Math\Exception\InvalidArgumentException;
+use Cline\Math\Exception\MathException;
+use Cline\Math\Exception\RoundingNecessaryException;
+use Cline\Math\Internal\DecimalHelper;
+use Deprecated;
+use LogicException;
+use Override;
+
+use const E_USER_DEPRECATED;
+
+use function is_finite;
+use function max;
+use function mb_strlen;
+use function mb_substr;
+use function min;
+use function throw_if;
+use function trigger_error;
+
+/**
+ * An arbitrarily large rational number.
+ *
+ * This class is immutable.
+ *
+ * Fractions are automatically simplified to lowest terms. For example, `2/4` becomes `1/2`.
+ * The denominator is always strictly positive; the sign is carried by the numerator.
+ * @psalm-immutable
+ */
+final readonly class BigRational extends BigNumber
+{
+    /**
+     * The numerator.
+     */
+    private BigInteger $numerator;
+
+    /**
+     * The denominator. Always strictly positive.
+     */
+    private BigInteger $denominator;
+
+    /**
+     * Protected constructor. Use a factory method to obtain an instance.
+     *
+     * @param BigInteger $numerator        The numerator.
+     * @param BigInteger $denominator      The denominator.
+     * @param bool       $checkDenominator Whether to check the denominator for negative and zero.
+     *
+     * @throws DivisionByZeroException If the denominator is zero.
+     *
+     * @pure
+     */
+    protected function __construct(BigInteger $numerator, BigInteger $denominator, bool $checkDenominator, bool $simplify)
+    {
+        if ($checkDenominator) {
+            if ($denominator->isZero()) {
+                throw DivisionByZeroException::zeroDenominator();
+            }
+
+            if ($denominator->isNegative()) {
+                $numerator = $numerator->negated();
+                $denominator = $denominator->negated();
+            }
+        }
+
+        if ($simplify) {
+            $gcd = $numerator->gcd($denominator);
+
+            $numerator = $numerator->quotient($gcd);
+            $denominator = $denominator->quotient($gcd);
+        }
+
+        $this->numerator = $numerator;
+        $this->denominator = $denominator;
+    }
+
+    /**
+     * This method is required for serializing the object and SHOULD NOT be accessed directly.
+     *
+     * @internal
+     *
+     * @return array{numerator: BigInteger, denominator: BigInteger}
+     */
+    public function __serialize(): array
+    {
+        return ['numerator' => $this->numerator, 'denominator' => $this->denominator];
+    }
+
+    /**
+     * This method is only here to allow unserializing the object and cannot be accessed directly.
+     *
+     * @internal
+     *
+     * @param array{numerator: BigInteger, denominator: BigInteger} $data
+     *
+     * @throws LogicException
+     */
+    public function __unserialize(array $data): void
+    {
+        /** @phpstan-ignore isset.initializedProperty */
+        throw_if(isset($this->numerator), LogicException::class, '__unserialize() is an internal function, it must not be called directly.');
+
+        /** @phpstan-ignore deadCode.unreachable */
+        $this->numerator = $data['numerator'];
+        $this->denominator = $data['denominator'];
+    }
+
+    /**
+     * Creates a BigRational out of a numerator and a denominator.
+     *
+     * If the denominator is negative, the signs of both the numerator and the denominator
+     * will be inverted to ensure that the denominator is always positive.
+     *
+     * @param BigNumber|int|string $numerator   The numerator. Must be convertible to a BigInteger.
+     * @param BigNumber|int|string $denominator The denominator. Must be convertible to a BigInteger.
+     *
+     * @throws DivisionByZeroException If the denominator is zero.
+     * @throws MathException           If an argument is not valid, or is not convertible to a BigInteger.
+     *
+     * @pure
+     */
+    public static function ofFraction(
+        BigNumber|int|string $numerator,
+        BigNumber|int|string $denominator,
+    ): self {
+        $numerator = BigInteger::of($numerator);
+        $denominator = BigInteger::of($denominator);
+
+        return new self($numerator, $denominator, true, true);
+    }
+
+    /**
+     * Returns a BigRational representing zero.
+     *
+     * @pure
+     */
+    public static function zero(): self
+    {
+        /** @var null|self $zero */
+        /** @phpstan-ignore-next-line impure.static */
+        static $zero;
+
+        if ($zero === null) {
+            $zero = new self(BigInteger::zero(), BigInteger::one(), false, false);
+        }
+
+        return $zero;
+    }
+
+    /**
+     * Returns a BigRational representing one.
+     *
+     * @pure
+     */
+    public static function one(): self
+    {
+        /** @var null|self $one */
+        /** @phpstan-ignore-next-line impure.static */
+        static $one;
+
+        if ($one === null) {
+            $one = new self(BigInteger::one(), BigInteger::one(), false, false);
+        }
+
+        return $one;
+    }
+
+    /**
+     * Returns a BigRational representing ten.
+     *
+     * @pure
+     */
+    public static function ten(): self
+    {
+        /** @var null|self $ten */
+        /** @phpstan-ignore-next-line impure.static */
+        static $ten;
+
+        if ($ten === null) {
+            $ten = new self(BigInteger::ten(), BigInteger::one(), false, false);
+        }
+
+        return $ten;
+    }
+
+    /**
+     * @pure
+     */
+    public function getNumerator(): BigInteger
+    {
+        return $this->numerator;
+    }
+
+    /**
+     * @pure
+     */
+    public function getDenominator(): BigInteger
+    {
+        return $this->denominator;
+    }
+
+    /**
+     * Returns the integral part of this rational number.
+     *
+     * Examples:
+     *
+     * - `7/3` returns `2` (since 7/3 = 2 + 1/3)
+     * - `-7/3` returns `-2` (since -7/3 = -2 + (-1/3))
+     *
+     * The following identity holds: `$r->isEqualTo($r->getFractionalPart()->plus($r->getIntegralPart()))`.
+     *
+     * @pure
+     */
+    public function getIntegralPart(): BigInteger
+    {
+        return $this->numerator->quotient($this->denominator);
+    }
+
+    /**
+     * Returns the fractional part of this rational number.
+     *
+     * Examples:
+     *
+     * - `7/3` returns `1/3` (since 7/3 = 2 + 1/3)
+     * - `-7/3` returns `-1/3` (since -7/3 = -2 + (-1/3))
+     *
+     * The following identity holds: `$r->isEqualTo($r->getFractionalPart()->plus($r->getIntegralPart()))`.
+     *
+     * @pure
+     */
+    public function getFractionalPart(): self
+    {
+        return new self($this->numerator->remainder($this->denominator), $this->denominator, false, false);
+    }
+
+    /**
+     * Returns the sum of this number and the given one.
+     *
+     * @param BigNumber|int|string $that The number to add.
+     *
+     * @throws MathException If the number is not valid.
+     *
+     * @pure
+     */
+    public function plus(BigNumber|int|string $that): self
+    {
+        $that = self::of($that);
+
+        if ($that->isZero()) {
+            return $this;
+        }
+
+        if ($this->isZero()) {
+            return $that;
+        }
+
+        $numerator = $this->numerator->multipliedBy($that->denominator);
+        $numerator = $numerator->plus($that->numerator->multipliedBy($this->denominator));
+
+        $denominator = $this->denominator->multipliedBy($that->denominator);
+
+        return new self($numerator, $denominator, false, true);
+    }
+
+    /**
+     * Returns the difference of this number and the given one.
+     *
+     * @param BigNumber|int|string $that The number to subtract.
+     *
+     * @throws MathException If the number is not valid.
+     *
+     * @pure
+     */
+    public function minus(BigNumber|int|string $that): self
+    {
+        $that = self::of($that);
+
+        if ($that->isZero()) {
+            return $this;
+        }
+
+        if ($this->isZero()) {
+            return $that->negated();
+        }
+
+        $numerator = $this->numerator->multipliedBy($that->denominator);
+        $numerator = $numerator->minus($that->numerator->multipliedBy($this->denominator));
+
+        $denominator = $this->denominator->multipliedBy($that->denominator);
+
+        return new self($numerator, $denominator, false, true);
+    }
+
+    /**
+     * Returns the product of this number and the given one.
+     *
+     * @param BigNumber|int|string $that The multiplier.
+     *
+     * @throws MathException If the multiplier is not valid.
+     *
+     * @pure
+     */
+    public function multipliedBy(BigNumber|int|string $that): self
+    {
+        $that = self::of($that);
+
+        if ($that->isZero() || $this->isZero()) {
+            return self::zero();
+        }
+
+        $numerator = $this->numerator->multipliedBy($that->numerator);
+        $denominator = $this->denominator->multipliedBy($that->denominator);
+
+        return new self($numerator, $denominator, false, true);
+    }
+
+    /**
+     * Returns the result of the division of this number by the given one.
+     *
+     * @param BigNumber|int|string $that The divisor.
+     *
+     * @throws DivisionByZeroException If the divisor is zero.
+     * @throws MathException           If the divisor is not valid.
+     *
+     * @pure
+     */
+    public function dividedBy(BigNumber|int|string $that): self
+    {
+        $that = self::of($that);
+
+        if ($that->isZero()) {
+            throw DivisionByZeroException::divisionByZero();
+        }
+
+        $numerator = $this->numerator->multipliedBy($that->denominator);
+        $denominator = $this->denominator->multipliedBy($that->numerator);
+
+        return new self($numerator, $denominator, true, true);
+    }
+
+    /**
+     * Returns this number exponentiated to the given value.
+     *
+     * Unlike BigInteger and BigDecimal, BigRational supports negative exponents:
+     * the result is the reciprocal raised to the absolute value of the exponent.
+     *
+     * @throws DivisionByZeroException If the exponent is negative and this number is zero.
+     *
+     * @pure
+     */
+    public function power(int $exponent): self
+    {
+        if ($exponent === 0) {
+            return self::one();
+        }
+
+        if ($exponent === 1) {
+            return $this;
+        }
+
+        if ($exponent < 0) {
+            return $this->reciprocal()->power(-$exponent);
+        }
+
+        return new self(
+            $this->numerator->power($exponent),
+            $this->denominator->power($exponent),
+            false,
+            false,
+        );
+    }
+
+    /**
+     * Returns the reciprocal of this BigRational.
+     *
+     * The reciprocal has the numerator and denominator swapped.
+     *
+     * @throws DivisionByZeroException If the numerator is zero.
+     *
+     * @pure
+     */
+    public function reciprocal(): self
+    {
+        if ($this->isZero()) {
+            throw DivisionByZeroException::reciprocalOfZero();
+        }
+
+        return new self($this->denominator, $this->numerator, true, false);
+    }
+
+    #[Override()]
+    public function negated(): static
+    {
+        return new self($this->numerator->negated(), $this->denominator, false, false);
+    }
+
+    /**
+     * Returns the simplified value of this BigRational.
+     */
+    #[Deprecated(message: 'Since 0.15, this is a no-op. BigRational numbers are always in their simplest form.')]
+    public function simplified(): self
+    {
+        @trigger_error(
+            'BigRational::simplified() is a no-op since 0.15, and will be removed in 0.16. BigRational numbers are now always simplified to lowest terms.',
+            E_USER_DEPRECATED,
+        );
+
+        return $this;
+    }
+
+    #[Override()]
+    public function compareTo(BigNumber|int|string $that): int
+    {
+        $that = self::of($that);
+
+        if ($this->denominator->isEqualTo($that->denominator)) {
+            return $this->numerator->compareTo($that->numerator);
+        }
+
+        return $this->numerator
+            ->multipliedBy($that->denominator)
+            ->compareTo($that->numerator->multipliedBy($this->denominator));
+    }
+
+    #[Override()]
+    public function getSign(): int
+    {
+        return $this->numerator->getSign();
+    }
+
+    #[Override()]
+    public function toBigInteger(): BigInteger
+    {
+        if ($this->denominator->isEqualTo(1)) {
+            return $this->numerator;
+        }
+
+        throw RoundingNecessaryException::rationalNotConvertibleToInteger();
+    }
+
+    #[Override()]
+    public function toBigDecimal(): BigDecimal
+    {
+        $scale = DecimalHelper::computeScaleFromReducedFractionDenominator($this->denominator->toString());
+
+        if ($scale === null) {
+            throw RoundingNecessaryException::rationalNotConvertibleToDecimal();
+        }
+
+        return $this->numerator->toBigDecimal()->dividedBy($this->denominator, $scale)->strippedOfTrailingZeros();
+    }
+
+    #[Override()]
+    public function toBigRational(): self
+    {
+        return $this;
+    }
+
+    #[Override()]
+    public function toScale(int $scale, RoundingMode $roundingMode = RoundingMode::Unnecessary): BigDecimal
+    {
+        if ($scale < 0) { // @phpstan-ignore smaller.alwaysFalse
+            throw InvalidArgumentException::negativeScale();
+        }
+
+        if ($roundingMode === RoundingMode::Unnecessary) {
+            $requiredScale = DecimalHelper::computeScaleFromReducedFractionDenominator($this->denominator->toString());
+
+            if ($requiredScale === null) {
+                throw RoundingNecessaryException::rationalNotConvertibleToDecimal();
+            }
+
+            if ($requiredScale > $scale) {
+                throw RoundingNecessaryException::rationalScaleTooSmall();
+            }
+        }
+
+        return $this->numerator->toBigDecimal()->dividedBy($this->denominator, $scale, $roundingMode);
+    }
+
+    #[Override()]
+    public function toInt(): int
+    {
+        return $this->toBigInteger()->toInt();
+    }
+
+    #[Override()]
+    public function toFloat(): float
+    {
+        $numeratorFloat = $this->numerator->toFloat();
+        $denominatorFloat = $this->denominator->toFloat();
+
+        if (is_finite($numeratorFloat) && is_finite($denominatorFloat)) {
+            return $numeratorFloat / $denominatorFloat;
+        }
+
+        // At least one side overflows to INF; use a decimal approximation instead.
+        // We need ~17 significant digits for double precision (we use 20 for some margin). Since $scale controls
+        // decimal places (not significant digits), we subtract the estimated order of magnitude so that large results
+        // use fewer decimal places and small results use more (to look past leading zeros). Clamped to [0, 350] as
+        // doubles range from e-324 to e308 (350 ≈ 324 + 20 significant digits + margin).
+        $magnitude = mb_strlen($this->numerator->abs()->toString()) - mb_strlen($this->denominator->toString());
+        $scale = min(350, max(0, 20 - $magnitude));
+
+        return $this->numerator
+            ->toBigDecimal()
+            ->dividedBy($this->denominator, $scale, RoundingMode::HalfEven)
+            ->toFloat();
+    }
+
+    #[Override()]
+    public function toString(): string
+    {
+        $numerator = $this->numerator->toString();
+        $denominator = $this->denominator->toString();
+
+        if ($denominator === '1') {
+            return $numerator;
+        }
+
+        return $numerator.'/'.$denominator;
+    }
+
+    /**
+     * Returns the decimal representation of this rational number, with repeating decimals in parentheses.
+     *
+     * WARNING: This method is unbounded.
+     *          The length of the repeating decimal period can be as large as `denominator - 1`.
+     *          For fractions with large denominators, this method can use excessive memory and CPU time.
+     *          For example, `1/100019` has a repeating period of 100,018 digits.
+     *
+     * Examples:
+     *
+     * - `10/3` returns `3.(3)`
+     * - `171/70` returns `2.4(428571)`
+     * - `1/2` returns `0.5`
+     *
+     * @pure
+     */
+    public function toRepeatingDecimalString(): string
+    {
+        if ($this->isZero()) {
+            return '0';
+        }
+
+        $sign = $this->numerator->isNegative() ? '-' : '';
+        $numerator = $this->numerator->abs();
+        $denominator = $this->denominator;
+
+        $integral = $numerator->quotient($denominator);
+        $remainder = $numerator->remainder($denominator);
+
+        $integralString = $integral->toString();
+
+        if ($remainder->isZero()) {
+            return $sign.$integralString;
+        }
+
+        $digits = '';
+        $remainderPositions = [];
+        $index = 0;
+
+        while (!$remainder->isZero()) {
+            $remainderString = $remainder->toString();
+
+            if (isset($remainderPositions[$remainderString])) {
+                $repeatIndex = $remainderPositions[$remainderString];
+                $nonRepeating = mb_substr($digits, 0, $repeatIndex);
+                $repeating = mb_substr($digits, $repeatIndex);
+
+                return $sign.$integralString.'.'.$nonRepeating.'('.$repeating.')';
+            }
+
+            $remainderPositions[$remainderString] = $index;
+            $remainder = $remainder->multipliedBy(10);
+
+            $digits .= $remainder->quotient($denominator)->toString();
+            $remainder = $remainder->remainder($denominator);
+            ++$index;
+        }
+
+        return $sign.$integralString.'.'.$digits;
+    }
+
+    #[Override()]
+    protected static function from(BigNumber $number): static
+    {
+        return $number->toBigRational();
+    }
+}
