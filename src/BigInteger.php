@@ -1067,13 +1067,13 @@ final readonly class BigInteger extends BigNumber
     /**
      * Returns the index of the rightmost (lowest-order) one bit in this BigInteger.
      *
-     * Returns -1 if this BigInteger contains no one bits.
+     * Returns null if this BigInteger is zero.
      *
-     * @return -1|non-negative-int
+     * @return null|non-negative-int
      *
      * @pure
      */
-    public function getLowestSetBit(): int
+    public function getLowestSetBit(): ?int
     {
         $n = $this;
         $bitLength = $this->getBitLength();
@@ -1086,7 +1086,7 @@ final readonly class BigInteger extends BigNumber
             $n = $n->shiftedRight(1);
         }
 
-        return -1;
+        return null;
     }
 
     /**

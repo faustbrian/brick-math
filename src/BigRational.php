@@ -14,11 +14,8 @@ use Cline\Math\Exception\InvalidArgumentException;
 use Cline\Math\Exception\MathException;
 use Cline\Math\Exception\RoundingNecessaryException;
 use Cline\Math\Internal\DecimalHelper;
-use Deprecated;
 use LogicException;
 use Override;
-
-use const E_USER_DEPRECATED;
 
 use function is_finite;
 use function max;
@@ -26,7 +23,6 @@ use function mb_strlen;
 use function mb_substr;
 use function min;
 use function throw_if;
-use function trigger_error;
 
 /**
  * An arbitrarily large rational number.
@@ -403,20 +399,6 @@ final readonly class BigRational extends BigNumber
     public function negated(): static
     {
         return new self($this->numerator->negated(), $this->denominator, false, false);
-    }
-
-    /**
-     * Returns the simplified value of this BigRational.
-     */
-    #[Deprecated(message: 'Since 0.15, this is a no-op. BigRational numbers are always in their simplest form.')]
-    public function simplified(): self
-    {
-        @trigger_error(
-            'BigRational::simplified() is a no-op since 0.15, and will be removed in 0.16. BigRational numbers are now always simplified to lowest terms.',
-            E_USER_DEPRECATED,
-        );
-
-        return $this;
     }
 
     #[Override()]

@@ -744,19 +744,60 @@ final readonly class BigDecimal extends BigNumber
     }
 
     /**
-     * Returns whether this decimal number has a non-zero fractional part.
+     * Returns the integral part of this decimal number.
+     *
+     * Examples:
+     *
+     * - `123.456` returns `123`
+     * - `-123.456` returns `-123`
+     * - `0.123` returns `0`
+     * - `-0.123` returns `0`
+     *
+     * The following identity holds: `$d->isEqualTo($d->getFractionalPart()->plus($d->getIntegralPart()))`.
      *
      * @pure
      */
-    public function hasNonZeroFractionalPart(): bool
+    public function getIntegralPart(): BigInteger
     {
         if ($this->scale === 0) {
-            return false;
+            /** @var numeric-string $value */
+            $value = $this->value;
+
+            return self::newBigInteger($value);
         }
 
         $value = DecimalHelper::padUnscaledValue($this->value, $this->scale);
+        $integerPart = mb_substr($value, 0, -$this->scale);
 
-        return mb_substr($value, -$this->scale) !== str_repeat('0', $this->scale);
+        if ($integerPart === '-0') {
+            $integerPart = '0';
+        }
+
+        /** @var numeric-string $integerPart */
+        return self::newBigInteger($integerPart);
+    }
+
+    /**
+     * Returns the fractional part of this decimal number.
+     *
+     * Examples:
+     *
+     * - `123.456` returns `0.456`
+     * - `-123.456` returns `-0.456`
+     * - `123` returns `0`
+     * - `-123` returns `0`
+     *
+     * The following identity holds: `$d->isEqualTo($d->getFractionalPart()->plus($d->getIntegralPart()))`.
+     *
+     * @pure
+     */
+    public function getFractionalPart(): self
+    {
+        if ($this->scale === 0) {
+            return self::zero();
+        }
+
+        return $this->minus($this->getIntegralPart());
     }
 
     #[Override()]

@@ -3818,7 +3818,7 @@ dataset('providerGetBitLength', fn (): array => [
     ['10141204801825835211973625643007', 103],
     ['10141204801825835211973625643008', 104],
 ]);
-test('get lowest set bit', function (string $number, int $lowestSetBit): void {
+test('get lowest set bit', function (string $number, ?int $lowestSetBit): void {
     self::assertSame($lowestSetBit, BigInteger::of($number)->getLowestSetBit());
 })->with('providerGetLowestSetBit');
 dataset('providerGetLowestSetBit', fn (): array => [
@@ -3832,7 +3832,7 @@ dataset('providerGetLowestSetBit', fn (): array => [
     ['-3', 0],
     ['-2', 1],
     ['-1', 0],
-    ['0', -1],
+    ['0', null],
     ['1', 0],
     ['2', 1],
     ['3', 0],

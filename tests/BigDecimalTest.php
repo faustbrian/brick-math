@@ -3269,16 +3269,39 @@ dataset('providerGetPrecision', fn (): array => [
     ['123000.01', 8],
     ['123000.010', 9],
 ]);
-test('has non zero fractional part', function (string $number, bool $hasNonZeroFractionalPart): void {
-    self::assertSame($hasNonZeroFractionalPart, BigDecimal::of($number)->hasNonZeroFractionalPart());
-})->with('providerHasNonZeroFractionalPart');
-dataset('providerHasNonZeroFractionalPart', fn (): array => [
+test('fractional part zero check', function (string $number, bool $hasNonZeroFractionalPart): void {
+    self::assertSame($hasNonZeroFractionalPart, !BigDecimal::of($number)->getFractionalPart()->isZero());
+})->with('providerFractionalPartZeroCheck');
+dataset('providerFractionalPartZeroCheck', fn (): array => [
     ['1', false],
     ['1.0', false],
     ['1.01', true],
     ['-123456789', false],
     ['-123456789.0000000000000000000000000000000000000000000000000000000', false],
     ['-123456789.00000000000000000000000000000000000000000000000000000001', true],
+]);
+test('get integral part and fractional part', function (string $number, string $integralPart, string $fractionalPart): void {
+    $decimal = BigDecimal::of($number);
+
+    self::assertBigIntegerEquals($integralPart, $decimal->getIntegralPart());
+    self::assertBigDecimalEquals($fractionalPart, $decimal->getFractionalPart());
+    self::assertTrue($decimal->isEqualTo($decimal->getFractionalPart()->plus($decimal->getIntegralPart())));
+})->with('providerGetIntegralPartAndFractionalPart');
+dataset('providerGetIntegralPartAndFractionalPart', fn (): array => [
+    ['0', '0', '0'],
+    ['0.1', '0', '0.1'],
+    ['1', '1', '0'],
+    ['1.0', '1', '0.0'],
+    ['1.99', '1', '0.99'],
+    ['-1', '-1', '0'],
+    ['-1.0', '-1', '0.0'],
+    ['-1.99', '-1', '-0.99'],
+    ['123.456', '123', '0.456'],
+    ['-123.456', '-123', '-0.456'],
+    ['0.001', '0', '0.001'],
+    ['-0.001', '0', '-0.001'],
+    ['999999999999999999999999999999.999999999999999999999999999999', '999999999999999999999999999999', '0.999999999999999999999999999999'],
+    ['-999999999999999999999999999999.999999999999999999999999999999', '-999999999999999999999999999999', '-0.999999999999999999999999999999'],
 ]);
 test('to big integer', function (string $decimal, string $expected): void {
     self::assertBigIntegerEquals($expected, BigDecimal::of($decimal)->toBigInteger());
